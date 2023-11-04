@@ -11,7 +11,6 @@ import com.squareup.okhttp.Request;
 import com.squareup.okhttp.RequestBody;
 import com.squareup.okhttp.Response;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -21,24 +20,18 @@ import java.net.URL;
 @Service
 public class DiskServiceImpl implements DiskService {
     private final OkHttpClient client = new OkHttpClient();
-    private final Environment environment;
-
     @Value("${yandex.disk.file.path}")
     private String filePath;
 
     @Value("${yandex.disk.api.token}")
     private String apiToken;
 
-    public DiskServiceImpl(Environment environment) {
-        this.environment = environment;
-    }
-
     //Получение URL для загрузки файла
     @Override
     public String upload() {
         try {
             File file = new File(filePath);
-            String diskResource = environment.getProperty("yandex.disk.url.for.upload");
+            String diskResource = "https://cloud-api.yandex.net/v1/disk/resources/upload";
             Request request = new Request.Builder()
                     .url(diskResource + "?path=" + file.getName())
                     .addHeader("Authorization", apiToken)
@@ -59,7 +52,7 @@ public class DiskServiceImpl implements DiskService {
 
                 if (uploadResponse.isSuccessful()) {
                     //В случае успешной загрузки файла делаем его публичным для больших возможностей взаимодействия с файлом
-                    String makePublicURL = environment.getProperty("yandex.disk.url.for.make.file.public");
+                    String makePublicURL = "https://cloud-api.yandex.net/v1/disk/resources/publish\n";
                     Request makePublicRequest = new Request.Builder()
                             .url(makePublicURL + "?path=" + "disk%3A%2F" + file.getName())
                             .addHeader("Authorization", apiToken)
