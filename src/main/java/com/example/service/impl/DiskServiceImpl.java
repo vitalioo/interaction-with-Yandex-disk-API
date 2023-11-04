@@ -10,6 +10,8 @@ import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 import com.squareup.okhttp.RequestBody;
 import com.squareup.okhttp.Response;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +20,8 @@ import java.io.IOException;
 import java.net.URL;
 
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class DiskServiceImpl implements DiskService {
     private final OkHttpClient client = new OkHttpClient();
     @Value("${yandex.disk.file.path}")
@@ -67,7 +71,7 @@ public class DiskServiceImpl implements DiskService {
                         return makePublicAccessDTO.getHref();
                     } else {
                         try {
-                            handleApiErrors(makePublicResponse);
+                            getApiError(makePublicResponse);
                         } catch (RuntimeException exception) {
                             exception.printStackTrace();
                             return exception.getMessage();
@@ -76,7 +80,7 @@ public class DiskServiceImpl implements DiskService {
 
                 } else {
                     try {
-                        handleApiErrors(uploadResponse);
+                        getApiError(uploadResponse);
                     } catch (RuntimeException exception) {
                         exception.printStackTrace();
                         return exception.getMessage();
@@ -85,7 +89,7 @@ public class DiskServiceImpl implements DiskService {
 
             } else {
                 try {
-                    handleApiErrors(response);
+                    getApiError(response);
                 } catch (RuntimeException exception) {
                     exception.printStackTrace();
                     return exception.getMessage();
@@ -100,22 +104,10 @@ public class DiskServiceImpl implements DiskService {
         return null;
     }
 
-    private void handleApiErrors(Response response) throws IOException {
+    private void getApiError(Response response) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         HttpErrorDTO httpErrorDTO = mapper.readValue(response.body().string(), HttpErrorDTO.class);
-        switch (response.code()) {
-            case 400 -> throw new IncorrectDataException(httpErrorDTO.getMessage());
-            case 401 -> throw new NotAuthorizedException(httpErrorDTO.getMessage());
-            case 403 -> throw new NotAvailableAPIException(httpErrorDTO.getMessage());
-            case 404 -> throw new NotFoundException(httpErrorDTO.getMessage() + " " + httpErrorDTO.getError());
-            case 406 -> throw new NotAcceptableException(httpErrorDTO.getMessage());
-            case 409 -> throw new ConflictException(httpErrorDTO.getMessage());
-            case 413 -> throw new RequestEntityTooLargeException(httpErrorDTO.getMessage());
-            case 423 -> throw new LockedException(httpErrorDTO.getMessage());
-            case 429 -> throw new TooManyRequestsException(httpErrorDTO.getMessage());
-            case 503 -> throw new ServiceUnavailableException(httpErrorDTO.getMessage());
-            case 507 -> throw new InsufficientStorageException(httpErrorDTO.getMessage());
-        }
+        throw new DiskException(httpErrorDTO.getMessage());
     }
 
     // Перманентное удаление файла с диска (удаление не в корзину, а полное)
