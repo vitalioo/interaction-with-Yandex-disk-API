@@ -1,7 +1,9 @@
 package com.example.service;
 
-public interface DiskService {
-    String upload();
+import java.io.File;
 
-    String delete();
+public interface DiskService {
+    String upload(File file);
+
+    String delete(String link);
 }
