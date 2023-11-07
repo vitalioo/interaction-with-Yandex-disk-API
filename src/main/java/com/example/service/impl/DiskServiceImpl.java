@@ -5,7 +5,9 @@ import com.example.model.responses.GetUrlSuccessResponse;
 import com.example.model.responses.HttpErrorResponse;
 import com.example.model.responses.MakePublicAccessResponse;
 import com.example.service.DiskService;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 import com.squareup.okhttp.RequestBody;
@@ -35,6 +37,7 @@ public class DiskServiceImpl implements DiskService {
     @Override
     public String upload(File file) {
         try {
+            mapper.configure(JsonParser.Feature.AUTO_CLOSE_SOURCE, true);
             String diskResource = "https://cloud-api.yandex.net/v1/disk/resources/upload";
             Request request = new Request.Builder()
                     .url(diskResource + "?path=" + file.getName())
@@ -92,8 +95,13 @@ public class DiskServiceImpl implements DiskService {
         System.out.println("Make public response: " + makePublicResponse.body().string());
 
         if (makePublicResponse.isSuccessful()) {
-            MakePublicAccessResponse makePublicAccessResponse = mapper.readValue(makePublicResponse.body().string(), MakePublicAccessResponse.class);
-            return makePublicAccessResponse.getHref();
+            try {
+                MakePublicAccessResponse makePublicAccessResponse = mapper.readValue(makePublicResponse.body().string(), MakePublicAccessResponse.class);
+                return makePublicAccessResponse.getHref();
+            } catch (MismatchedInputException exception) {
+                exception.printStackTrace();
+                return "Error: Invalid JSON response";
+            }
         } else {
             try {
                 getApiError(makePublicResponse);
