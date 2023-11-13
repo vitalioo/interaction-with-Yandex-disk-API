@@ -1,4 +1,4 @@
-package com.example.model.responses;
+package com.example.models.responses;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -9,7 +9,7 @@ import lombok.Setter;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
-public class MakePublicAccessResponse {
+public class PublishFileResponse {
     private String href;
     private String method;
     private boolean templated;

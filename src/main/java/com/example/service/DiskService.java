@@ -1,9 +1,11 @@
 package com.example.service;
 
+import com.example.models.dto.DiskFileDTO;
+
 import java.io.File;
 
 public interface DiskService {
-    String upload(File file);
+    DiskFileDTO upload(File file);
 
-    String delete(String link);
+    void delete(String diskFilePath);
 }

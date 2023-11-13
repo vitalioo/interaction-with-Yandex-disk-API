@@ -1,4 +1,4 @@
-package com.example.model.exceptions;
+package com.example.models.exceptions;
 
 public class DiskException extends RuntimeException {
     public DiskException(String message) {

@@ -1,142 +1,193 @@
 package com.example.service.impl;
 
-import com.example.model.exceptions.DiskException;
-import com.example.model.responses.GetUrlSuccessResponse;
-import com.example.model.responses.HttpErrorResponse;
-import com.example.model.responses.MakePublicAccessResponse;
-import com.example.service.DiskService;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.squareup.okhttp.OkHttpClient;
 import com.squareup.okhttp.Request;
 import com.squareup.okhttp.RequestBody;
 import com.squareup.okhttp.Response;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.example.models.dto.DiskFileDTO;
+import com.example.models.exceptions.DiskException;
+import com.example.models.responses.FileInfoResponse;
+import com.example.models.responses.GetUploadUrlResponse;
+import com.example.models.responses.YandexDiskErrorResponse;
+import com.example.service.DiskService;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DiskServiceImpl implements DiskService {
-    private final OkHttpClient client = new OkHttpClient();
+    private final String DISK_RESOURCE_URL = "https://cloud-api.yandex.net/v1/disk/resources/upload";
+    private final String FILE_INFO_URL = "https://cloud-api.yandex.net/v1/disk/resources";
+    private final String MAKE_PUBLISH_URL = "https://cloud-api.yandex.net/v1/disk/resources/publish";
+    private final String DELETE_RESOURCE_URL = "https://cloud-api.yandex.net/v1/disk/resources";
+    private final String CREATE_FOLDER_URL = "https://cloud-api.yandex.net/v1/disk/resources";
 
-    @Autowired
-    private ObjectMapper mapper;
+    private final OkHttpClient client = new OkHttpClient();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${yandex.disk.api.token}")
     private String apiToken;
 
     @Override
-    public String upload(File file) {
+    public DiskFileDTO upload(File file) {
+        /*createFolders(file);*/
+
+        URL urlForUpload;
         try {
-            mapper.configure(JsonParser.Feature.AUTO_CLOSE_SOURCE, true);
-            String diskResource = "https://cloud-api.yandex.net/v1/disk/resources/upload";
-            Request request = new Request.Builder()
-                    .url(diskResource + "?path=" + file.getName())
-                    .addHeader("Authorization", apiToken)
-                    .get()
-                    .build();
+            urlForUpload = new URL(Objects.requireNonNull(getURL(file)));
+        } catch (MalformedURLException exception) {
+            log.error("Disk error", exception.getLocalizedMessage());
+            throw new DiskException(exception.getLocalizedMessage());
+        }
+
+        Request uploadRequest = new Request.Builder()
+                .url(urlForUpload)
+                .put(RequestBody.create(null, file))
+                .build();
+
+        try {
+            Response uploadResponse = client.newCall(uploadRequest).execute();
+            if (!uploadResponse.isSuccessful()) {
+                handleError(uploadResponse);
+            }
+
+            return getFileInfo(file);
+        } catch (IOException exception) {
+            log.error(exception.getLocalizedMessage());
+            throw new DiskException(exception.getLocalizedMessage());
+        }
+    }
+
+/*
+    private void createFolders(File file) {
+        Path filePath = FileSystems.getDefault().getPath(file.getPath());
+
+        Request createFolderRequest;
+
+        try {
+            for (int i = 0; i < filePath.getNameCount() - 1; ++i) {
+                String folderName = filePath.getName(i).toString();
+                createFolderRequest = new Request.Builder()
+                        .url(CREATE_FOLDER_URL + "?path=" + folderName)
+                        .addHeader("Authorization", apiToken)
+                        .put(RequestBody.create(null, new byte[0]))
+                        .build();
+
+                client.newCall(createFolderRequest).execute();
+            }
+        } catch (IOException exception) {
+            log.error("Disk error", exception.getLocalizedMessage());
+            throw new DiskException(exception.getLocalizedMessage());
+        }
+    }
+*/
+
+    private String getURL(File file) {
+        Request request = new Request.Builder()
+                .url(DISK_RESOURCE_URL + "?path=" + file.getName())
+                .addHeader("Authorization", apiToken)
+                .get()
+                .build();
+
+        GetUploadUrlResponse getUploadUrlResponse = new GetUploadUrlResponse();
+        try {
             Response response = client.newCall(request).execute();
 
             if (response.isSuccessful()) {
-                GetUrlSuccessResponse getUrlSuccessResponse = mapper.readValue(response.body().string(), GetUrlSuccessResponse.class);
-                URL url = new URL(getUrlSuccessResponse.getHref());
-                Request uploadRequest = new Request.Builder()
-                        .url(url)
-                        .put(RequestBody.create(null, file))
-                        .build();
-                Response uploadResponse = client.newCall(uploadRequest).execute();
-
-                if (uploadResponse.isSuccessful()) {
-                    return makeFilePublic(file);
-                } else {
-                    try {
-                        getApiError(uploadResponse);
-                    } catch (RuntimeException exception) {
-                        exception.printStackTrace();
-                        return exception.getMessage();
-                    }
-                }
-
+                getUploadUrlResponse = objectMapper.readValue(response.body().string(), GetUploadUrlResponse.class);
             } else {
-                try {
-                    getApiError(response);
-                } catch (RuntimeException exception) {
-                    exception.printStackTrace();
-                    return exception.getMessage();
-                }
+                handleError(response);
             }
-
-        } catch (Exception exception) {
-            exception.printStackTrace();
-            return exception.getMessage();
+        } catch (IOException exception) {
+            log.error(exception.getLocalizedMessage());
         }
 
-        return null;
+        return getUploadUrlResponse.getHref();
     }
 
-    private String makeFilePublic(File file) throws IOException {
-        String makePublicURL = "https://cloud-api.yandex.net/v1/disk/resources/publish";
+    private DiskFileDTO getFileInfo(File file) {
+        makeFilePublish(file);
+
+        Request infoRequest = new Request.Builder()
+                .url(FILE_INFO_URL + "?path=" + file.getName())
+                .addHeader("Authorization", apiToken)
+                .get()
+                .build();
+
+        FileInfoResponse fileInfoResponse = new FileInfoResponse();
+        try {
+            Response infoResponse = client.newCall(infoRequest).execute();
+            if (infoResponse.isSuccessful()) {
+                fileInfoResponse = objectMapper.readValue(infoResponse.body().string(), FileInfoResponse.class);
+            } else {
+                handleError(infoResponse);
+            }
+        } catch (IOException exception) {
+            log.error("Disk error", exception.getLocalizedMessage());
+        }
+
+        DiskFileDTO dto = new DiskFileDTO();
+        dto.setFileLink(fileInfoResponse.getFile());
+        dto.setDiskFilePath(fileInfoResponse.getPath());
+
+        return dto;
+    }
+
+    private void makeFilePublish(File file) {
 
         Request makePublicRequest = new Request.Builder()
-                .url(makePublicURL + "?path=" + "disk%3A%2F" + file.getName())
+                .url(MAKE_PUBLISH_URL + "?path=" + "disk%3A%2F" + file.getName())
                 .addHeader("Authorization", apiToken)
                 .put(RequestBody.create(null, new byte[0]))
                 .build();
-        Response makePublicResponse = client.newCall(makePublicRequest).execute();
-        System.out.println("Make public response: " + makePublicResponse.body().string());
 
-        if (makePublicResponse.isSuccessful()) {
-            try {
-                MakePublicAccessResponse makePublicAccessResponse = mapper.readValue(makePublicResponse.body().string(), MakePublicAccessResponse.class);
-                return makePublicAccessResponse.getHref();
-            } catch (MismatchedInputException exception) {
-                exception.printStackTrace();
-                return "Error: Invalid JSON response";
+        Response makePublicResponse;
+        try {
+            makePublicResponse = client.newCall(makePublicRequest).execute();
+
+            if (!makePublicResponse.isSuccessful()) {
+                handleError(makePublicResponse);
             }
-        } else {
-            try {
-                getApiError(makePublicResponse);
-            } catch (RuntimeException exception) {
-                exception.printStackTrace();
-                return exception.getMessage();
-            }
+        } catch (IOException exception) {
+            log.error(exception.getLocalizedMessage());
+            throw new DiskException(exception.getLocalizedMessage());
         }
-
-        return null;
     }
 
-    private void getApiError(Response response) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        HttpErrorResponse httpErrorResponse = mapper.readValue(response.body().string(), HttpErrorResponse.class);
-        throw new DiskException(httpErrorResponse.getMessage());
+    private void handleError(Response response) {
+        YandexDiskErrorResponse yandexDiskErrorResponse;
+        try {
+            yandexDiskErrorResponse = objectMapper.readValue(response.body().string(), YandexDiskErrorResponse.class);
+        } catch (IOException exception) {
+            throw new DiskException("Failed to parse error response");
+        }
+
+        throw new DiskException(yandexDiskErrorResponse.getMessage());
     }
 
     @Override
-    public String delete(String link) {
+    public void delete(String diskFilePath) {
+        Request request = new Request.Builder()
+                .url(DELETE_RESOURCE_URL + "?path=" + diskFilePath + "&permanently=true")
+                .addHeader("Authorization", apiToken)
+                .delete()
+                .build();
+
         try {
-            String deleteResource = "https://cloud-api.yandex.net/v1/disk/resources";
-
-            Request request = new Request.Builder()
-                    .url(deleteResource + "?path=" + link + "&permanently=true")
-                    .addHeader("Authorization", apiToken)
-                    .delete()
-                    .build();
-
-            Response response = client.newCall(request).execute();
-            return response.body().string();
+            client.newCall(request).execute();
         } catch (IOException exception) {
-            exception.printStackTrace();
-            return exception.getMessage();
+            log.error(exception.getLocalizedMessage());
+            throw new DiskException(exception.getLocalizedMessage());
         }
     }
-
 }
